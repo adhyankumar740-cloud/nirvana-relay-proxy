@@ -29,7 +29,15 @@ exports.handler = async (event) => {
     if (!res.ok) throw new Error(`Relay resolve returned HTTP ${res.status}`);
     const data = await res.json();
     if (!data.stream_url) throw new Error("Relay resolve response missing stream_url");
-    return json(200, { video_id: data.video_id ?? videoId, stream_url: data.stream_url });
+
+    // The relay's stream_url points at ITS OWN /audio/{filename}, which also
+    // requires X-Relay-Key - a raw fetch of it from the app would 401 since
+    // the app has no key. Rewrite it to our own keyless /api/audio proxy
+    // (see audio.js), which attaches the key server-side instead.
+    const filename = data.stream_url.split("/").pop();
+    const proxiedStreamUrl = `https://${event.headers.host}/api/audio?filename=${encodeURIComponent(filename)}`;
+
+    return json(200, { video_id: data.video_id ?? videoId, stream_url: proxiedStreamUrl });
   } catch (err) {
     console.error("[resolve] relay failed:", err.message);
     return json(502, { error: "Resolve failed: relay backend unreachable or errored." });
